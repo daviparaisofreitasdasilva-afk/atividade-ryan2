@@ -1,32 +1,144 @@
-const API_URL = 'http://localhost:3000/produtos';
+const API_URL = 'http://localhost:3000';
 
 // Elementos do DOM
+const secaoLogin = document.getElementById('secao-login');
+const secaoPainel = document.getElementById('secao-painel');
+const secaoCadastro = document.getElementById('secao-cadastro');
+const formLogin = document.getElementById('form-login');
 const formProduto = document.getElementById('form-produto');
 const tabelaProdutos = document.getElementById('tabela-produtos');
+const usuarioInfo = document.getElementById('usuario-info');
+const nomeUsuario = document.getElementById('nome-usuario');
+const btnLogout = document.getElementById('btn-logout');
 
-// Executa a busca de produtos assim que a página é carregada
-document.addEventListener('DOMContentLoaded', buscarProdutos);
+// Evento ao carregar a página
+document.addEventListener('DOMContentLoaded', checarAutenticacao);
 
-// Função para buscar os produtos na API (GET)
-async function buscarProdutos() {
-    try {
-        const resposta = await fetch(API_URL);
+// =========================================================================
+// GERENCIAMENTO DE ESTADO E INTERFACE
+// =========================================================================
+
+function checarAutenticacao() {
+    const token = localStorage.getItem('token');
+    const usuario = JSON.parse(localStorage.getItem('usuario'));
+
+    if (token && usuario) {
+        secaoLogin.classList.add('hidden');
+        secaoPainel.classList.remove('hidden');
+        usuarioInfo.classList.remove('hidden');
         
-        if (!resposta.ok) {
-            throw new Error('Erro ao buscar produtos.');
+        nomeUsuario.textContent = `Olá, ${usuario.nome} (${usuario.role.toUpperCase()})`;
+
+        // Exibe o formulário de cadastro APENAS se for Admin
+        if (usuario.role === 'admin') {
+            secaoCadastro.classList.remove('hidden');
+        } else {
+            secaoCadastro.classList.add('hidden');
         }
 
+        buscarProdutos();
+    } else {
+        secaoLogin.classList.remove('hidden');
+        secaoPainel.classList.add('hidden');
+        usuarioInfo.classList.add('hidden');
+    }
+}
+
+// =========================================================================
+// REQUISIÇÕES HTTP (FETCH)
+// =========================================================================
+
+// 1. Rota de Login (POST /login)
+formLogin.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const email = document.getElementById('login-email').value;
+    const senha = document.getElementById('login-senha').value;
+
+    try {
+        const resposta = await fetch(`${API_URL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, senha })
+        });
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            throw new Error(dados.mensagem || 'Erro ao realizar login.');
+        }
+
+        // Armazena Token e Usuário no LocalStorage
+        localStorage.setItem('token', dados.token);
+        localStorage.setItem('usuario', JSON.stringify(dados.usuario));
+
+        formLogin.reset();
+        checarAutenticacao();
+
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
+// 2. Rota de Busca de Produtos (GET /produtos)
+async function buscarProdutos() {
+    try {
+        const resposta = await fetch(`${API_URL}/produtos`);
         const produtos = await resposta.json();
         renderizarTabela(produtos);
     } catch (erro) {
         console.error('Erro na requisição GET:', erro);
-        alert('Não foi possível carregar a lista de produtos.');
     }
 }
 
-// Função para renderizar os produtos no HTML
+// 3. Rota de Cadastro de Produto (POST /produtos - Protegida)
+formProduto.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const token = localStorage.getItem('token');
+
+    const novoProduto = {
+        nome: document.getElementById('nome').value,
+        categoria: document.getElementById('categoria').value,
+        preco: parseFloat(document.getElementById('preco').value),
+        quantidade: parseInt(document.getElementById('quantidade').value)
+    };
+
+    try {
+        const resposta = await fetch(`${API_URL}/produtos`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` // Inserção do Token no cabeçalho
+            },
+            body: JSON.stringify(novoProduto)
+        });
+
+        const dados = await resposta.json();
+
+        if (!resposta.ok) {
+            throw new Error(dados.mensagem || 'Erro ao cadastrar produto.');
+        }
+
+        formProduto.reset();
+        await buscarProdutos();
+        alert('Produto cadastrado com sucesso!');
+
+    } catch (erro) {
+        alert(erro.message);
+    }
+});
+
+// Logout
+btnLogout.addEventListener('click', () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('usuario');
+    checarAutenticacao();
+});
+
+// Renderização dos elementos na tabela
 function renderizarTabela(produtos) {
-    tabelaProdutos.innerHTML = ''; // Limpa a tabela antes de preencher
+    tabelaProdutos.innerHTML = '';
 
     if (produtos.length === 0) {
         tabelaProdutos.innerHTML = `
@@ -39,8 +151,6 @@ function renderizarTabela(produtos) {
 
     produtos.forEach(produto => {
         const tr = document.createElement('tr');
-        
-        // Formata o preço no padrão BRL
         const precoFormatado = produto.preco.toLocaleString('pt-BR', {
             style: 'currency',
             currency: 'BRL'
@@ -57,42 +167,3 @@ function renderizarTabela(produtos) {
         tabelaProdutos.appendChild(tr);
     });
 }
-
-// Função para cadastrar um novo produto (POST)
-formProduto.addEventListener('submit', async (e) => {
-    e.preventDefault(); // Impede o reload da página
-
-    // Captura os dados digitados
-    const novoProduto = {
-        nome: document.getElementById('nome').value,
-        categoria: document.getElementById('categoria').value,
-        preco: parseFloat(document.getElementById('preco').value),
-        quantidade: parseInt(document.getElementById('quantidade').value)
-    };
-
-    try {
-        const resposta = await fetch(API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(novoProduto)
-        });
-
-        if (!resposta.ok) {
-            throw new Error('Erro ao cadastrar produto.');
-        }
-
-        // Limpa os campos do formulário
-        formProduto.reset();
-
-        // Atualiza a listagem de produtos imediatamente
-        await buscarProdutos();
-
-        alert('Produto cadastrado com sucesso!');
-
-    } catch (erro) {
-        console.error('Erro na requisição POST:', erro);
-        alert('Falha ao cadastrar o produto.');
-    }
-});
